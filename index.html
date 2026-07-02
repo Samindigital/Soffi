@@ -1,3 +1,4 @@
+        
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -8,105 +9,230 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2.39.8/dist/umd/supabase.js"></script>
 </head>
-<body class="bg-gray-50 text-gray-900 pb-12">
+<body class="bg-gray-50 text-gray-900 pb-12 font-sans">
 
     <div id="app"></div>
 
     <script>
-        // --- SUPABASE CLIENT INITIALIZATION (የተስተካከለ አጻጻፍ) ---
+        // --- SUPABASE CLIENT CONFIG ---
         const SUPABASE_URL = "https://loakmxenkegxlusahfoo.supabase.co";
         const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvYWtteGVua2VneGx1c2FoZm9vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4NTE5NjQsImV4cCI6MjA5ODQyNzk2NH0.4PRvUWO8cxdTXdSZ2Cgtamfo2I_VZ7BxAVVHu-7BIUY";
-        
-        // window.supabase መኖሩን ማረጋገጫ
-        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // --- APP STATE ---
         let currentRole = 'customer';
         let currentLang = 'AM';
         let menuItems = [];
+        let orders = [];
+        let cart = {}; // { item_id: quantity }
 
         // --- TRANSLATIONS ---
         const t = {
-            AM: { title: "ሶፊ ሬስቶራንት", subtitle: "ትኩስ። ፈጣን። የቤት ውስጥ ጣዕም፡፡", customer: "ደንበኛ", kitchen: "ኩሽና", admin: "አስተዳዳሪ", standardMenu: "የተመዘገቡ ምግቦች", loading: "በመጫን ላይ..." },
-            EN: { title: "Sofi Restaurant", subtitle: "FRESH. FAST. HOME-STYLE.", customer: "Customer", kitchen: "Kitchen", admin: "Admin", standardMenu: "Menu Items", loading: "Loading..." }
+            AM: { title: "ሶፊ ሬስቶራንት", subtitle: "ትኩስ። ፈጣን። የቤት ውስጥ ጣዕም፡፡", customer: "ደንበኛ", kitchen: "ኩሽና እና ባር", admin: "አስተዳዳሪ", table: "ጠረጴዛ 3", cart: "ጋሪ", total: "ጠቅላላ", currency: "ብር", orderNow: "አሁን እዘዝ", emptyCart: "ጋሪው ባዶ ነው", addItem: "አዲስ ሜኑ ጨምር", price: "ዋጋ" },
+            EN: { title: "Sofi Restaurant", subtitle: "FRESH. FAST. HOME-STYLE.", customer: "Customer", kitchen: "Kitchen & Bar", admin: "Admin", table: "Table 3", cart: "Cart", total: "Total", currency: "Birr", orderNow: "Order Now", emptyCart: "Cart is empty", addItem: "Add Menu Item", price: "Price" }
         };
 
-        // --- FETCH DATA FROM SUPABASE ---
-        async function fetchMenu() {
-            try {
-                const { data, error } = await supabaseClient.from('menu_items').select('*');
-                if (data && data.length > 0) {
-                    menuItems = data;
-                } else {
-                    // ዳታቤዝህ ባዶ ከሆነ ማሳያ Dummy Data (ለሙከራ)
-                    menuItems = [
-                        { id: 1, name_am: "ልዩ በየአይነቱ", name_en: "Special Beyaynetu", price: 250 },
-                        { id: 2, name_am: "ክትፎ", name_en: "Kitfo", price: 450 },
-                        { id: 3, name_am: "ማኪያቶ", name_en: "Macchiato", price: 70 }
-                    ];
-                }
-            } catch (err) {
-                console.error("Supabase error:", err);
-            }
+        // --- FETCH DATA (REAL FUNCTIONALITY) ---
+        async function loadData() {
+            await fetchMenu();
+            await fetchOrders();
             renderApp();
         }
 
-        // --- RENDER UI ---
+        async function fetchMenu() {
+            const { data } = await supabase.from('menu_items').select('*');
+            if (data) menuItems = data;
+        }
+
+        async function fetchOrders() {
+            const { data } = await supabase.from('orders').select('*, order_items(*, menu_items(*))').order('created_at', { ascending: false });
+            if (data) orders = data;
+        }
+
+        // --- ACTIONS ---
+        function addToCart(id) {
+            cart[id] = (cart[id] || 0) + 1;
+            renderApp();
+        }
+
+        function removeFromCart(id) {
+            if (cart[id] > 1) cart[id]--;
+            else delete cart[id];
+            renderApp();
+        }
+
+        async function submitOrder() {
+            const totalPrice = Object.keys(cart).reduce((sum, id) => {
+                const item = menuItems.find(m => m.id.toString() === id.toString());
+                return sum + (item ? item.price * cart[id] : 0);
+            }, 0);
+
+            const { data: orderData, error } = await supabase
+                .from('orders')
+                .insert([{ table_number: 3, status: 'New', total_price: totalPrice }])
+                .select().single();
+
+            if (error) return alert("ትዕዛዝ አልተሳካም: " + error.message);
+
+            const orderItemsPayload = Object.keys(cart).map(id => ({
+                order_id: orderData.id,
+                item_id: parseInt(id),
+                quantity: cart[id]
+            }));
+
+            await supabase.from('order_items').insert(orderItemsPayload);
+            cart = {};
+            alert(currentLang === 'AM' ? "ትዕዛዝዎ በተሳካ ሁኔታ ተልኳል!" : "Order placed successfully!");
+            loadData();
+        }
+
+        async function updateStatus(orderId, nextStatus) {
+            await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
+            loadData();
+        }
+
+        async function handleAddMenuItem(e) {
+            e.preventDefault();
+            const nameEn = document.getElementById('name_en').value;
+            const nameAm = document.getElementById('name_am').value;
+            const price = parseFloat(document.getElementById('item_price').value);
+            
+            if(!nameEn || !nameAm || !price) return;
+
+            await supabase.from('menu_items').insert([{ name_en: nameEn, name_am: nameAm, price: price, category: 'food', is_available: true }]);
+            loadData();
+        }
+
+        // --- RENDER APPLICATION ---
         function renderApp() {
             const app = document.getElementById('app');
-            app.innerHTML = `
+            const tx = t[currentLang];
+
+            // 1. Header component
+            let html = `
                 <header class="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md">
                     <div class="flex justify-between items-center">
                         <div>
-                            <h1 class="text-xl font-bold text-amber-500">${t[currentLang].title}</h1>
-                            <p class="text-xs text-gray-400">${t[currentLang].subtitle}</p>
+                            <h1 class="text-xl font-bold text-amber-500">${tx.title}</h1>
+                            <p class="text-xs text-gray-400">${tx.subtitle}</p>
                         </div>
-                        <button onclick="toggleLang()" class="bg-slate-800 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-400">
+                        <button onclick="currentLang = currentLang === 'EN' ? 'AM' : 'EN'; renderApp();" class="bg-slate-800 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-400">
                             ${currentLang === 'EN' ? 'አማርኛ' : 'English'}
                         </button>
                     </div>
                     <div class="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-lg text-xs mt-3 text-center">
-                        <button onclick="setRole('customer')" class="py-2 rounded transition ${currentRole === 'customer' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'text-gray-400'}">${t[currentLang].customer}</button>
-                        <button onclick="setRole('kitchen')" class="py-2 rounded transition ${currentRole === 'kitchen' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'text-gray-400'}">${t[currentLang].kitchen}</button>
-                        <button onclick="setRole('admin')" class="py-2 rounded transition ${currentRole === 'admin' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'text-gray-400'}">${t[currentLang].admin}</button>
+                        <button onclick="currentRole='customer'; renderApp();" class="py-2 rounded ${currentRole === 'customer' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-gray-400'}">${tx.customer}</button>
+                        <button onclick="currentRole='kitchen'; renderApp();" class="py-2 rounded ${currentRole === 'kitchen' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-gray-400'}">${tx.kitchen}</button>
+                        <button onclick="currentRole='admin'; renderApp();" class="py-2 rounded ${currentRole === 'admin' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-gray-400'}">${tx.admin}</button>
                     </div>
                 </header>
-
                 <main class="max-w-md mx-auto p-4">
-                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-center mt-4">
-                        <div class="text-emerald-600 font-bold text-xs flex items-center justify-center gap-1">
-                            <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                            ከ Supabase ጋር ተገናኝቷል
-                        </div>
-                        <p class="text-[11px] text-gray-400 mt-1">ክፍል፦ <span class="font-bold text-slate-700 uppercase">${currentRole}</span></p>
-                    </div>
+            `;
 
-                    <h3 class="font-bold text-sm text-gray-500 uppercase tracking-wider mt-6 mb-3">${t[currentLang].standardMenu}</h3>
-                    
+            // --- CUSTOMER VIEW ---
+            if (currentRole === 'customer') {
+                html += `
+                    <div class="bg-white p-4 rounded-xl border mb-4 flex items-center gap-3">
+                        <div class="p-2 bg-amber-100 rounded-lg text-amber-600"><i data-lucide="utensils"></i></div>
+                        <div><h3 class="font-bold text-sm">${tx.table}</h3></div>
+                    </div>
                     <div class="space-y-3">
-                        ${menuItems.map(item => `
-                            <div class="bg-white p-4 rounded-xl border border-gray-100 flex justify-between items-center shadow-sm hover:border-gray-200 transition">
+                        ${menuItems.length === 0 ? '<p class="text-xs text-gray-400 text-center">ምንም ምግብ አልተመዘገበም</p>' : menuItems.map(item => {
+                            const qty = cart[item.id] || 0;
+                            return `
+                            <div class="bg-white p-4 rounded-xl border flex justify-between items-center shadow-sm">
                                 <div>
                                     <h4 class="font-bold text-sm text-slate-900">${currentLang === 'EN' ? item.name_en : item.name_am}</h4>
-                                    <p class="text-xs text-amber-600 font-black mt-1">${item.price} ብር</p>
+                                    <p class="text-xs text-amber-600 font-black mt-1">${item.price} ${tx.currency}</p>
                                 </div>
-                                <button class="bg-slate-900 hover:bg-slate-800 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition active:scale-95">
-                                    + ጨምር
-                                </button>
-                            </div>
-                        `).join('')}
+                                <div>
+                                    ${qty > 0 ? `
+                                        <div class="flex items-center gap-2 bg-amber-500 text-slate-950 px-2 py-1 rounded-lg font-bold text-xs">
+                                            <button onclick="removeFromCart(${item.id})">-</button>
+                                            <span>${qty}</span>
+                                            <button onclick="addToCart(${item.id})">+</button>
+                                        </div>
+                                    ` : `
+                                        <button onclick="addToCart(${item.id})" class="bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg font-semibold">+ ጨምር</button>
+                                    `}
+                                </div>
+                            </div>`;
+                        }).join('')}
                     </div>
-                </main>
-            `;
-            // Lucide icons ሪፍሬሽ ለማድረግ
+                `;
+
+                // Floating Cart Button
+                const cartQty = Object.values(cart).reduce((a, b) => a + b, 0);
+                if (cartQty > 0) {
+                    html += `
+                        <div class="fixed bottom-4 left-4 right-4 max-w-md mx-auto bg-slate-900 text-white p-4 rounded-xl shadow-xl flex justify-between items-center">
+                            <span class="text-xs font-bold bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full">${cartQty} እቃዎች</span>
+                            <button onclick="submitOrder()" class="bg-amber-500 text-slate-950 font-bold text-xs px-4 py-2 rounded-lg">${tx.orderNow}</button>
+                        </div>
+                    `;
+                }
+            }
+
+            // --- KITCHEN VIEW ---
+            else if (currentRole === 'kitchen') {
+                html += `<div class="space-y-3">`;
+                const activeOrders = orders.filter(o => o.status === 'New' || o.status === 'Preparing');
+                if(activeOrders.length === 0) html += `<p class="text-center text-xs text-gray-400 mt-6">ምንም አዲስ ትዕዛዝ የለም</p>`;
+                
+                activeOrders.forEach(order => {
+                    html += `
+                        <div class="bg-white p-4 rounded-xl border text-xs shadow-sm">
+                            <div class="flex justify-between font-bold mb-2 text-slate-700 border-b pb-2">
+                                <span>ጠረጴዛ ${order.table_number} (#${order.id})</span>
+                                <span class="text-amber-600 uppercase">${order.status}</span>
+                            </div>
+                            <div class="space-y-1 mb-3">
+                                ${order.order_items?.map(oi => `
+                                    <div class="flex justify-between">
+                                        <span>${currentLang === 'EN' ? oi.menu_items?.name_en : oi.menu_items?.name_am}</span>
+                                        <span class="font-bold">x${oi.quantity}</span>
+                                    </div>
+                                `).join('') || ''}
+                            </div>
+                            ${order.status === 'New' ? `
+                                <button onclick="updateStatus(${order.id}, 'Preparing')" class="w-full bg-slate-900 text-white py-1.5 rounded font-bold">መስራት ጀምር</button>
+                            ` : `
+                                <button onclick="updateStatus(${order.id}, 'Ready')" class="w-full bg-amber-500 text-slate-950 py-1.5 rounded font-bold">ደረሰ በል</button>
+                            `}
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
+            // --- ADMIN VIEW ---
+            else if (currentRole === 'admin') {
+                html += `
+                    <div class="bg-white p-4 rounded-xl border shadow-sm space-y-4">
+                        <h3 class="font-bold text-xs text-gray-700 uppercase border-b pb-1.5">${tx.addItem}</h3>
+                        <form onsubmit="handleAddMenuItem(event)" class="space-y-2">
+                            <input type="text" id="name_en" placeholder="Name (English)" class="w-full p-2 text-xs border rounded" />
+                            <input type="text" id="name_am" placeholder="ስም (አማርኛ)" class="w-full p-2 text-xs border rounded" />
+                            <input type="number" id="item_price" placeholder="Price / ዋጋ" class="w-full p-2 text-xs border rounded" />
+                            <button type="submit" class="w-full bg-slate-900 text-white py-2 rounded text-xs font-bold">${tx.addItem}</button>
+                        </form>
+                    </div>
+                `;
+            }
+
+            html += `</main>`;
+            app.innerHTML = html;
             if (window.lucide) window.lucide.createIcons();
         }
 
-        function setRole(role) { currentRole = role; renderApp(); }
-        function toggleLang() { currentLang = currentLang === 'EN' ? 'AM' : 'EN'; renderApp(); }
+        // Live Realtime Subscriptions for Real-time database changes
+        supabase
+            .channel('public:orders')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadData())
+            .subscribe();
 
-        // ገጹ ሲከፈት መረጃውን አምጣ
-        fetchMenu();
+        // Initial trigger
+        loadData();
     </script>
 </body>
 </html>
